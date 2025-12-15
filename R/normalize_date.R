@@ -1,17 +1,5 @@
-normalize_date <- function(dates, calendar = "jalali") {
+normalize_date <- function(dates) {
   suppressWarnings({
-    # نگاشت مخفف‌ها به اسم کامل
-    calendar <- tolower(calendar)
-    if (calendar %in% c("j", "jalali")) {
-      calendar <- "jalali"
-    } else if (calendar %in% c("g", "gregorian")) {
-      calendar <- "gregorian"
-    } else if (calendar %in% c("h", "hijri")) {
-      calendar <- "hijri"
-    } else {
-      stop("Unsupported calendar type. Use 'jalali'/'j', 'gregorian'/'g', or 'hijri'/'h'.")
-    }
-    
     # Load mapping table from package data
     data("calendar_map", package = "calBridgeR")
     
@@ -49,21 +37,16 @@ normalize_date <- function(dates, calendar = "jalali") {
     
     date_norm <- as.character(date_norm)
     
-    # Validate dates using lookup table
-    if (calendar == "jalali") {
-      date_vec <- as.character(calendar_map$Shamsi)
-    } else if (calendar == "gregorian") {
-      date_vec <- as.character(calendar_map$Gregorian)
-    } else if (calendar == "hijri") {
-      date_vec <- as.character(calendar_map$Hijri)
-    }
+    # Validate dates using lookup table (across all calendars)
+    valid_vec <- c(as.character(calendar_map$Shamsi),
+                   as.character(calendar_map$Gregorian),
+                   as.character(calendar_map$Hijri))
     
-    # Use data.table if available for fast lookup
     if (requireNamespace("data.table", quietly = TRUE)) {
-      dt <- data.table::data.table(valid = date_vec)
+      dt <- data.table::data.table(valid = valid_vec)
       valid_idx <- date_norm %in% dt$valid
     } else {
-      valid_idx <- date_norm %in% date_vec
+      valid_idx <- date_norm %in% valid_vec
     }
     date_norm[!valid_idx] <- NA_character_
     

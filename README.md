@@ -5,7 +5,7 @@ It efficiently handles **large datasets** using a **pre-built mapping table** co
 
 The package provides five main functions:
 
-1. `normalize_date()`: Normalize date strings to `"YYYY-MM-DD"` format, with optional time. Supports Jalali (`j`), Gregorian (`g`), and Hijri (`h`).  
+1. `normalize_date()`: Normalize date strings to `"YYYY-MM-DD"` format, with optional time.  
 2. `convert_date()`: Convert dates between any two calendars (Jalali, Gregorian, Hijri) using the pre-built mapping.  
 3. `day2day()`: Generate a sequence of dates between two given dates in the chosen calendar, including optional start and end times.  
 4. `date_diff()`: Compute the difference in days between two dates in any supported calendar using fast index lookup.  
@@ -30,7 +30,7 @@ devtools::install_github("bistoonh/calBridgeR", force = TRUE)
 library(calBridgeR)
 
 # Normalize dates (Jalali)
-normalize_date(c("14020101", "1402-01", "1402-01-01 14:30:00"), calendar = "j")
+normalize_date(c("14020101", "1402-01", "1402-01-01 14:30:00"))
 # [1] "1402-01-01" "1402-01-01" "1402-01-01 14:30:00"
 
 # Convert Jalali to Gregorian
