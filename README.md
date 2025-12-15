@@ -1,6 +1,6 @@
 # calBridgeR
 
-**calBridgeR** is an R package for **fast and accurate conversion** between Jalali (Persian), Gregorian, and Hijri calendars.  
+**calBridgeR** is an R package for **fast and accurate conversion** between Jalali (Shamsi), Gregorian, and Hijri calendars.  
 It efficiently handles **large datasets** using a **pre-built mapping table** covering **Gregorian years 1700–2200**, with aligned mappings for **Jalali** and **Hijri** dates.
 
 
@@ -87,4 +87,5 @@ This table maps Jalali, Gregorian, and Hijri dates across multiple centuries, al
 ## License
 
 MIT License
+
 
