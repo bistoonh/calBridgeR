@@ -1,9 +1,10 @@
+# Date-time difference function (uses normalize_date without calendar parameter)
 date_time_diff <- function(start_date, end_date, calendar) {
   if (length(start_date) != length(end_date)) {
     stop("Lengths of start_date and end_date must be equal.")
   }
   
-  # نگاشت مخفف‌ها به اسم کامل
+  # Map abbreviations to full calendar names
   normalize_calendar <- function(x) {
     x <- tolower(x)
     if (x %in% c("j", "jalali")) {
@@ -23,7 +24,7 @@ date_time_diff <- function(start_date, end_date, calendar) {
     out <- x
     ok <- !is.na(x) & nzchar(x)
     if (any(ok)) {
-      out[ok] <- suppressWarnings(normalize_date(x[ok], calendar = calendar))
+      out[ok] <- suppressWarnings(normalize_date(x[ok]))
     }
     out[!ok] <- NA_character_
     out
@@ -44,7 +45,7 @@ date_time_diff <- function(start_date, end_date, calendar) {
   # Load lookup table
   data("calendar_map", package = "calBridgeR", envir = environment())
   
-  # انتخاب ستون مناسب
+  # Select appropriate column
   if (calendar == "jalali") {
     date_vec <- calendar_map$Shamsi
   } else if (calendar == "gregorian") {

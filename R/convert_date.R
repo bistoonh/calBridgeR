@@ -1,6 +1,6 @@
 convert_date <- function(dates, from, to) {
   suppressWarnings({
-    # نگاشت مخفف‌ها به اسم کامل
+    # Map abbreviations to full calendar names
     normalize_calendar <- function(x) {
       x <- tolower(x)
       if (x %in% c("j", "jalali")) {
@@ -16,20 +16,20 @@ convert_date <- function(dates, from, to) {
     
     from <- normalize_calendar(from)
     to   <- normalize_calendar(to)
-    if (from == to) stop("'from' and 'to' calendars must be different")
+    if (from == to) stop("'from' and 'to' calendars must be different.")
     
-    # نرمال‌سازی تاریخ ورودی
-    dates_norm <- normalize_date(dates, calendar = from)
+    # Normalize input dates (no calendar parameter needed)
+    dates_norm <- normalize_date(dates)
     
-    # جدا کردن بخش تاریخ و زمان
-    dt_split <- strsplit(dates_norm, " ")
+    # Split into date and time components
+    dt_split  <- strsplit(dates_norm, " ")
     date_only <- vapply(dt_split, `[`, 1, FUN.VALUE = character(1))
     time_only <- vapply(dt_split, function(x) if (length(x) > 1) x[2] else NA_character_, FUN.VALUE = character(1))
     
-    # بارگذاری جدول نگاشت
+    # Load mapping table
     data("calendar_map", package = "calBridgeR", envir = environment())
     
-    # استفاده از data.table اگر نصب باشه
+    # Use data.table if available
     if (requireNamespace("data.table", quietly = TRUE)) {
       dt_map <- data.table::data.table(
         jalali    = calendar_map$Shamsi,
@@ -41,7 +41,7 @@ convert_date <- function(dates, from, to) {
       result_date <- dt_map[[to]][idx]
       
     } else {
-      # حالت fallback: hash lookup
+      # Fallback: hash lookup
       lookup_env <- list2env(
         setNames(as.list(calendar_map[[to]]), calendar_map[[from]]),
         hash = TRUE, parent = emptyenv()
@@ -53,7 +53,7 @@ convert_date <- function(dates, from, to) {
       }, character(1))
     }
     
-    # اضافه کردن زمان اگر وجود داشت
+    # Attach time component if present
     result <- ifelse(is.na(time_only) | time_only == "", result_date, paste(result_date, time_only))
     
     return(result)

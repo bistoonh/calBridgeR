@@ -1,6 +1,6 @@
 day2day <- function(start_date, end_date, calendar) {
   suppressWarnings({
-    # نگاشت مخفف‌ها به اسم کامل
+    # Map abbreviations to full calendar names
     normalize_calendar <- function(x) {
       x <- tolower(x)
       if (x %in% c("j", "jalali")) {
@@ -16,9 +16,9 @@ day2day <- function(start_date, end_date, calendar) {
     
     calendar <- normalize_calendar(calendar)
     
-    # Normalize input dates
-    start_norm <- normalize_date(start_date, calendar = calendar)
-    end_norm   <- normalize_date(end_date, calendar = calendar)
+    # Normalize input dates (no calendar parameter needed)
+    start_norm <- normalize_date(start_date)
+    end_norm   <- normalize_date(end_date)
     
     if (any(is.na(start_norm) | is.na(end_norm))) {
       stop("Invalid start or end date after normalization.")
@@ -51,7 +51,7 @@ day2day <- function(start_date, end_date, calendar) {
     idx_end   <- match(end_date_only, date_vec)
     
     if (is.na(idx_start) | is.na(idx_end)) {
-      stop("Start or end date not found in map.")
+      stop("Start or end date not found in mapping table.")
     }
     
     # Generate date sequence
