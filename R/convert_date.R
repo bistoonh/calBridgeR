@@ -1,6 +1,6 @@
 convert_date <- function(dates, from, to) {
   suppressWarnings({
-    # Map abbreviations to full calendar names
+
     normalize_calendar <- function(x) {
       x <- tolower(x)
       if (x %in% c("j", "jalali")) {
@@ -13,49 +13,69 @@ convert_date <- function(dates, from, to) {
         stop("Unsupported calendar type. Use 'jalali'/'j', 'gregorian'/'g', or 'hijri'/'h'.")
       }
     }
-    
+
     from <- normalize_calendar(from)
     to   <- normalize_calendar(to)
     if (from == to) stop("'from' and 'to' calendars must be different.")
-    
-    # Normalize input dates (no calendar parameter needed)
+
+    has_dt <- requireNamespace("data.table", quietly = TRUE)
+
+    # Normalize input dates
     dates_norm <- normalize_date(dates)
-    
-    # Split into date and time components
-    dt_split  <- strsplit(dates_norm, " ")
-    date_only <- vapply(dt_split, `[`, 1, FUN.VALUE = character(1))
-    time_only <- vapply(dt_split, function(x) if (length(x) > 1) x[2] else NA_character_, FUN.VALUE = character(1))
-    
-    # Load mapping table
-    data("calendar_map", package = "calBridgeR", envir = environment())
-    
-    # Use data.table if available
-    if (requireNamespace("data.table", quietly = TRUE)) {
-      dt_map <- data.table::data.table(
-        jalali    = calendar_map$Shamsi,
-        gregorian = calendar_map$Gregorian,
-        hijri     = calendar_map$Hijri
-      )
-      
-      idx <- match(date_only, dt_map[[from]])
-      result_date <- dt_map[[to]][idx]
-      
-    } else {
-      # Fallback: hash lookup
-      lookup_env <- list2env(
-        setNames(as.list(calendar_map[[to]]), calendar_map[[from]]),
-        hash = TRUE, parent = emptyenv()
-      )
-      
-      result_date <- vapply(date_only, function(x) {
-        val <- lookup_env[[x]]
-        if (is.null(val)) NA_character_ else val
-      }, character(1))
+
+    n <- length(dates_norm)
+
+    # Split into date and time (fast: split at first space)
+    sp <- regexpr(" ", dates_norm, fixed = TRUE)
+    has_sp <- !is.na(dates_norm) & sp > 0L
+
+    date_only <- dates_norm
+    time_only <- rep(NA_character_, n)
+
+    if (any(has_sp)) {
+      date_only[has_sp] <- substr(dates_norm[has_sp], 1L, sp[has_sp] - 1L)
+      tp <- trimws(substr(dates_norm[has_sp], sp[has_sp] + 1L, nchar(dates_norm[has_sp])))
+      tp[tp == ""] <- NA_character_
+      time_only[has_sp] <- tp
     }
-    
-    # Attach time component if present
-    result <- ifelse(is.na(time_only) | time_only == "", result_date, paste(result_date, time_only))
-    
-    return(result)
+
+    # Load mapping table (avoid repeated data() cost)
+    ns <- tryCatch(asNamespace("calBridgeR"), error = function(e) NULL)
+    if (!is.null(ns) && exists("calendar_map", envir = ns, inherits = FALSE)) {
+      calendar_map <- get("calendar_map", envir = ns, inherits = FALSE)
+    } else {
+      data("calendar_map", package = "calBridgeR", envir = environment())
+      calendar_map <- get("calendar_map", envir = environment(), inherits = FALSE)
+    }
+
+    # Map from normalized names to columns
+    from_vec <- switch(from,
+      jalali    = as.character(calendar_map$Shamsi),
+      gregorian = as.character(calendar_map$Gregorian),
+      hijri     = as.character(calendar_map$Hijri)
+    )
+    to_vec <- switch(to,
+      jalali    = as.character(calendar_map$Shamsi),
+      gregorian = as.character(calendar_map$Gregorian),
+      hijri     = as.character(calendar_map$Hijri)
+    )
+
+    # Fast lookup
+    if (has_dt) {
+      idx <- data.table::chmatch(date_only, from_vec, nomatch = 0L)
+      result_date <- rep(NA_character_, n)
+      hit <- idx > 0L
+      if (any(hit)) result_date[hit] <- to_vec[idx[hit]]
+    } else {
+      idx <- match(date_only, from_vec)
+      result_date <- to_vec[idx]  # idx NA -> NA (desired)
+    }
+
+    # Attach time if present (and date is not NA)
+    result <- ifelse(is.na(time_only) | time_only == "" | is.na(result_date),
+                     result_date,
+                     paste(result_date, time_only))
+
+    result
   })
 }

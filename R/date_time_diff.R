@@ -1,10 +1,8 @@
-# Date-time difference function (uses normalize_date without calendar parameter)
 date_time_diff <- function(start_date, end_date, calendar) {
   if (length(start_date) != length(end_date)) {
     stop("Lengths of start_date and end_date must be equal.")
   }
-  
-  # Map abbreviations to full calendar names
+
   normalize_calendar <- function(x) {
     x <- tolower(x)
     if (x %in% c("j", "jalali")) {
@@ -18,74 +16,113 @@ date_time_diff <- function(start_date, end_date, calendar) {
     }
   }
   calendar <- normalize_calendar(calendar)
-  
-  # Safe normalization
+
+  has_dt <- requireNamespace("data.table", quietly = TRUE)
+
+  # Safe normalization (vectorized)
   safe_norm_vec <- function(x) {
-    out <- x
+    x <- as.character(x)
+    out <- rep(NA_character_, length(x))
     ok <- !is.na(x) & nzchar(x)
-    if (any(ok)) {
-      out[ok] <- suppressWarnings(normalize_date(x[ok]))
-    }
-    out[!ok] <- NA_character_
+    if (any(ok)) out[ok] <- suppressWarnings(normalize_date(x[ok]))
     out
   }
+
   start_norm <- safe_norm_vec(start_date)
   end_norm   <- safe_norm_vec(end_date)
-  
-  # Split into date and time parts
-  split_start <- strsplit(start_norm, " ")
-  split_end   <- strsplit(end_norm, " ")
-  
-  start_date_only <- vapply(split_start, `[`, 1, FUN.VALUE = character(1))
-  end_date_only   <- vapply(split_end,   `[`, 1, FUN.VALUE = character(1))
-  
-  start_time_only <- vapply(split_start, function(x) if (length(x) > 1) x[2] else "00:00:00", FUN.VALUE = character(1))
-  end_time_only   <- vapply(split_end,   function(x) if (length(x) > 1) x[2] else "00:00:00", FUN.VALUE = character(1))
-  
-  # Load lookup table
-  data("calendar_map", package = "calBridgeR", envir = environment())
-  
-  # Select appropriate column
-  if (calendar == "jalali") {
-    date_vec <- calendar_map$Shamsi
-  } else if (calendar == "gregorian") {
-    date_vec <- calendar_map$Gregorian
-  } else if (calendar == "hijri") {
-    date_vec <- calendar_map$Hijri
+
+  n <- length(start_norm)
+
+  # Split date and time fast (at first space)
+  split_dt_fast <- function(x) {
+    sp <- regexpr(" ", x, fixed = TRUE)
+    has_sp <- !is.na(x) & sp > 0L
+
+    d <- x
+    t <- rep("00:00:00", length(x))  # default when no time part (matches original intent)
+
+    if (any(has_sp)) {
+      d[has_sp] <- substr(x[has_sp], 1L, sp[has_sp] - 1L)
+      tp <- trimws(substr(x[has_sp], sp[has_sp] + 1L, nchar(x[has_sp])))
+      tp[tp == ""] <- "00:00:00"
+      t[has_sp] <- tp
+    }
+    list(date = d, time = t)
   }
-  
-  # Fast matching: day index
-  start_idx <- match(start_date_only, date_vec)
-  end_idx   <- match(end_date_only,   date_vec)
-  
-  # Day difference in seconds
-  day_diff_sec <- (end_idx - start_idx) * 86400L
-  
-  # Parse times into seconds-of-day
-  time_to_sec <- function(t) {
-    parts <- do.call(rbind, strsplit(t, ":"))
-    h <- as.integer(parts[,1]); m <- as.integer(parts[,2]); s <- as.integer(parts[,3])
-    h[is.na(h)] <- 0; m[is.na(m)] <- 0; s[is.na(s)] <- 0
-    h*3600 + m*60 + s
+
+  s <- split_dt_fast(start_norm)
+  e <- split_dt_fast(end_norm)
+
+  start_date_only <- s$date
+  end_date_only   <- e$date
+  start_time_only <- s$time
+  end_time_only   <- e$time
+
+  # Load calendar_map efficiently
+  ns <- tryCatch(asNamespace("calBridgeR"), error = function(e) NULL)
+  if (!is.null(ns) && exists("calendar_map", envir = ns, inherits = FALSE)) {
+    calendar_map <- get("calendar_map", envir = ns, inherits = FALSE)
+  } else {
+    data("calendar_map", package = "calBridgeR", envir = environment())
+    calendar_map <- get("calendar_map", envir = environment(), inherits = FALSE)
   }
-  start_sec <- time_to_sec(start_time_only)
-  end_sec   <- time_to_sec(end_time_only)
-  
-  # Total difference in seconds
+
+  date_vec <- switch(calendar,
+    jalali    = as.character(calendar_map$Shamsi),
+    gregorian = as.character(calendar_map$Gregorian),
+    hijri     = as.character(calendar_map$Hijri)
+  )
+
+  # Day index lookup
+  if (has_dt) {
+    start_idx <- data.table::chmatch(start_date_only, date_vec, nomatch = 0L)
+    end_idx   <- data.table::chmatch(end_date_only,   date_vec, nomatch = 0L)
+    start_idx[start_idx == 0L] <- NA_integer_
+    end_idx[end_idx == 0L] <- NA_integer_
+  } else {
+    start_idx <- match(start_date_only, date_vec)
+    end_idx   <- match(end_date_only,   date_vec)
+  }
+
+  # Day difference in seconds (use numeric to avoid int overflow)
+  day_diff_sec <- (end_idx - start_idx) * 86400
+
+  # Time -> seconds-of-day (fast, no strsplit)
+  time_to_sec_fast <- function(t) {
+    t <- as.character(t)
+    h <- suppressWarnings(as.integer(substr(t, 1L, 2L)))
+    m <- suppressWarnings(as.integer(substr(t, 4L, 5L)))
+    s <- suppressWarnings(as.integer(substr(t, 7L, 8L)))
+
+    h[is.na(h)] <- 0L
+    m[is.na(m)] <- 0L
+    s[is.na(s)] <- 0L
+
+    h * 3600 + m * 60 + s
+  }
+
+  start_sec <- time_to_sec_fast(start_time_only)
+  end_sec   <- time_to_sec_fast(end_time_only)
+
   diff_sec <- day_diff_sec + (end_sec - start_sec)
-  
-  # Formatted output
-  format_diff <- function(sec) {
-    days <- sec %/% 86400
-    hours <- (sec %% 86400) %/% 3600
-    mins <- (sec %% 3600) %/% 60
-    secs <- sec %% 60
-    sprintf("%d days %02d:%02d:%02d", days, hours, mins, secs)
+
+  # Formatted output (NA -> NA_character_)
+  formatted <- rep(NA_character_, n)
+  ok <- !is.na(diff_sec)
+  if (any(ok)) {
+    days  <- diff_sec[ok] %/% 86400
+    hours <- (diff_sec[ok] %% 86400) %/% 3600
+    mins  <- (diff_sec[ok] %% 3600) %/% 60
+    secs  <- diff_sec[ok] %% 60
+
+    formatted[ok] <- sprintf(
+      "%d days %02d:%02d:%02d",
+      as.integer(days), as.integer(hours), as.integer(mins), as.integer(secs)
+    )
   }
-  diff_fmt <- vapply(diff_sec, format_diff, FUN.VALUE = character(1))
-  
+
   list(
     seconds = diff_sec,
-    formatted = diff_fmt
+    formatted = formatted
   )
 }
