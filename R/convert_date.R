@@ -1,81 +1,99 @@
+# تعریف بیرون از تابع برای جلوگیری از بازتعریف مکرر در هر Call
+.normalize_calendar <- function(x) {
+  x <- tolower(x)
+  if (x %in% c("j", "jalali")) {
+    "jalali"
+  } else if (x %in% c("g", "gregorian")) {
+    "gregorian"
+  } else if (x %in% c("h", "hijri")) {
+    "hijri"
+  } else {
+    stop("Unsupported calendar type. Use 'jalali'/'j', 'gregorian'/'g', or 'hijri'/'h'.")
+  }
+}
+
 convert_date <- function(dates, from, to) {
-  suppressWarnings({
+  from <- .normalize_calendar(from)
+  to   <- .normalize_calendar(to)
+  if (from == to) stop("'from' and 'to' calendars must be different.")
 
-    normalize_calendar <- function(x) {
-      x <- tolower(x)
-      if (x %in% c("j", "jalali")) {
-        "jalali"
-      } else if (x %in% c("g", "gregorian")) {
-        "gregorian"
-      } else if (x %in% c("h", "hijri")) {
-        "hijri"
-      } else {
-        stop("Unsupported calendar type. Use 'jalali'/'j', 'gregorian'/'g', or 'hijri'/'h'.")
-      }
-    }
+  n <- length(dates)
+  if (n == 0L) return(character(0))
 
-    from <- normalize_calendar(from)
-    to   <- normalize_calendar(to)
-    if (from == to) stop("'from' and 'to' calendars must be different.")
+  # 1. Normalize input dates
+  dates_norm <- normalize_date(dates)
 
-    has_dt <- requireNamespace("data.table", quietly = TRUE)
+  # 2. Split date and time (فقط روی رکوردهایی که فاصله دارند)
+  sp <- regexpr(" ", dates_norm, fixed = TRUE)
+  has_sp <- !is.na(dates_norm) & sp > 0L
 
-    # Normalize input dates
-    dates_norm <- normalize_date(dates)
+  date_only <- dates_norm
+  time_only <- rep(NA_character_, n)
 
-    n <- length(dates_norm)
+  if (any(has_sp)) {
+    date_only[has_sp] <- substr(dates_norm[has_sp], 1L, sp[has_sp] - 1L)
+    tp <- trimws(substr(dates_norm[has_sp], sp[has_sp] + 1L, nchar(dates_norm[has_sp])))
+    tp[tp == ""] <- NA_character_
+    time_only[has_sp] <- tp
+  }
 
-    # Split into date and time (fast: split at first space)
-    sp <- regexpr(" ", dates_norm, fixed = TRUE)
-    has_sp <- !is.na(dates_norm) & sp > 0L
+  # 3. استراتژی Unique: پیدا کردن مقادیر مجزا
+  # u_dates: تاریخ‌های یکتا (بدون NA)
+  # map_back: ایندکس معکوس برای بازگرداندن به ابعاد بردار اصلی
+  has_date <- !is.na(date_only)
+  u_dates  <- unique(date_only[has_date])
 
-    date_only <- dates_norm
-    time_only <- rep(NA_character_, n)
+  # 4. لود بهینه جدول نگاشت
+  ns <- tryCatch(asNamespace("calBridgeR"), error = function(e) NULL)
+  if (!is.null(ns) && exists("calendar_map", envir = ns, inherits = FALSE)) {
+    calendar_map <- get("calendar_map", envir = ns, inherits = FALSE)
+  } else {
+    data("calendar_map", package = "calBridgeR", envir = environment())
+    calendar_map <- get("calendar_map", envir = environment(), inherits = FALSE)
+  }
 
-    if (any(has_sp)) {
-      date_only[has_sp] <- substr(dates_norm[has_sp], 1L, sp[has_sp] - 1L)
-      tp <- trimws(substr(dates_norm[has_sp], sp[has_sp] + 1L, nchar(dates_norm[has_sp])))
-      tp[tp == ""] <- NA_character_
-      time_only[has_sp] <- tp
-    }
+  from_vec <- switch(from,
+    jalali    = calendar_map$Shamsi,
+    gregorian = calendar_map$Gregorian,
+    hijri     = calendar_map$Hijri
+  )
+  to_vec <- switch(to,
+    jalali    = calendar_map$Shamsi,
+    gregorian = calendar_map$Gregorian,
+    hijri     = calendar_map$Hijri
+  )
 
-    # Load mapping table (avoid repeated data() cost)
-    ns <- tryCatch(asNamespace("calBridgeR"), error = function(e) NULL)
-    if (!is.null(ns) && exists("calendar_map", envir = ns, inherits = FALSE)) {
-      calendar_map <- get("calendar_map", envir = ns, inherits = FALSE)
-    } else {
-      data("calendar_map", package = "calBridgeR", envir = environment())
-      calendar_map <- get("calendar_map", envir = environment(), inherits = FALSE)
-    }
+  # 5. تبدیل فقط مقادیر یکتا (Unique Lookup)
+  has_dt <- requireNamespace("data.table", quietly = TRUE)
+  
+  if (has_dt) {
+    u_idx <- data.table::chmatch(u_dates, from_vec, nomatch = NA_integer_)
+  } else {
+    u_idx <- match(u_dates, from_vec)
+  }
+  
+  # مقادیر تبدیل‌شده برای تاریخ‌های یکتا
+  u_converted <- to_vec[u_idx]
 
-    # Map from normalized names to columns
-    from_vec <- switch(from,
-      jalali    = as.character(calendar_map$Shamsi),
-      gregorian = as.character(calendar_map$Gregorian),
-      hijri     = as.character(calendar_map$Hijri)
-    )
-    to_vec <- switch(to,
-      jalali    = as.character(calendar_map$Shamsi),
-      gregorian = as.character(calendar_map$Gregorian),
-      hijri     = as.character(calendar_map$Hijri)
-    )
-
-    # Fast lookup
+  # 6. بازنشانی سریع روی کل بردار با Map Back
+  result_date <- rep(NA_character_, n)
+  if (length(u_dates) > 0L) {
     if (has_dt) {
-      idx <- data.table::chmatch(date_only, from_vec, nomatch = 0L)
-      result_date <- rep(NA_character_, n)
-      hit <- idx > 0L
-      if (any(hit)) result_date[hit] <- to_vec[idx[hit]]
+      map_back <- data.table::chmatch(date_only[has_date], u_dates)
     } else {
-      idx <- match(date_only, from_vec)
-      result_date <- to_vec[idx]  # idx NA -> NA (desired)
+      map_back <- match(date_only[has_date], u_dates)
     }
+    result_date[has_date] <- u_converted[map_back]
+  }
 
-    # Attach time if present (and date is not NA)
-    result <- ifelse(is.na(time_only) | time_only == "" | is.na(result_date),
-                     result_date,
-                     paste(result_date, time_only))
+  # 7. الحاق زمان (جایگزین بهینه برای ifelse)
+  has_time_to_attach <- !is.na(time_only) & !is.na(result_date)
+  if (any(has_time_to_attach)) {
+    result_date[has_time_to_attach] <- paste(
+      result_date[has_time_to_attach], 
+      time_only[has_time_to_attach]
+    )
+  }
 
-    result
-  })
+  result_date
 }
